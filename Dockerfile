@@ -121,16 +121,19 @@ RUN git clone https://github.com/adah1972/libunibreak.git && \
     cd .. && rm -rf libunibreak
 
 # Build and install libass with libunibreak support
+# Build and install libass with proper error handling
 RUN git clone https://github.com/libass/libass.git && \
     cd libass && \
     autoreconf -i && \
-    PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/lib/pkgconfig" \
-    CFLAGS="-I/usr/local/include" \
-    LDFLAGS="-L/usr/local/lib" \
+    export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/lib/pkgconfig" && \
+    export CFLAGS="-I/usr/local/include" && \
+    export LDFLAGS="-L/usr/local/lib" && \
     ./configure --enable-libunibreak --enable-fontconfig --enable-harfbuzz || { \
         echo "=== CONFIGURATION FAILED ==="; \
         echo "Config log contents:"; \
         cat config.log; \
+        echo "=== PKG-CONFIG DEBUG ==="; \
+        pkg-config --list-all | grep -E "(unibreak|fribidi|harfbuzz|fontconfig)" || echo "No relevant packages found"; \
         exit 1; \
     } && \
     mkdir -p /app && cp config.log /app/config.log && \
@@ -142,6 +145,7 @@ RUN git clone https://github.com/libass/libass.git && \
     make install && \
     ldconfig && \
     cd .. && rm -rf libass
+
 
 # Build and install FFmpeg with architecture-aware paths
 RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
