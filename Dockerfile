@@ -1,6 +1,22 @@
 # Base image
 FROM python:3.9-slim
 
+# Detect architecture and set appropriate library paths
+RUN ARCH=$(dpkg --print-architecture) && \
+    echo "Detected architecture: $ARCH" && \
+    if [ "$ARCH" = "amd64" ]; then \
+        echo "export LIB_ARCH=x86_64-linux-gnu" >> /etc/environment; \
+    elif [ "$ARCH" = "arm64" ]; then \
+        echo "export LIB_ARCH=aarch64-linux-gnu" >> /etc/environment; \
+    elif [ "$ARCH" = "armhf" ]; then \
+        echo "export LIB_ARCH=arm-linux-gnueabihf" >> /etc/environment; \
+    else \
+        echo "export LIB_ARCH=x86_64-linux-gnu" >> /etc/environment; \
+    fi
+
+# Source the environment
+RUN . /etc/environment
+
 # Install system dependencies, build tools, and libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -64,12 +80,12 @@ RUN git clone https://github.com/Haivision/srt.git && \
     make install && \
     cd ../.. && rm -rf srt
 
-# Install SVT-AV1 from source
+# Install SVT-AV1 from source (with ARM optimizations where available)
 RUN git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git && \
     cd SVT-AV1 && \
     git checkout v0.9.0 && \
     cd Build && \
-    cmake .. && \
+    cmake .. -DNATIVE=OFF && \
     make -j$(nproc) && \
     make install && \
     cd ../.. && rm -rf SVT-AV1
@@ -81,9 +97,9 @@ RUN git clone https://github.com/Netflix/vmaf.git && \
     ninja -C build && \
     ninja -C build install && \
     cd ../.. && rm -rf vmaf && \
-    ldconfig  # Update the dynamic linker cache
+    ldconfig
 
-# Manually build and install fdk-aac (since it is not available via apt-get)
+# Manually build and install fdk-aac
 RUN git clone https://github.com/mstorsjo/fdk-aac && \
     cd fdk-aac && \
     autoreconf -fiv && \
@@ -92,7 +108,7 @@ RUN git clone https://github.com/mstorsjo/fdk-aac && \
     make install && \
     cd .. && rm -rf fdk-aac
 
-# Install libunibreak (required for ASS_FEATURE_WRAP_UNICODE)
+# Install libunibreak
 RUN git clone https://github.com/adah1972/libunibreak.git && \
     cd libunibreak && \
     ./autogen.sh && \
@@ -102,7 +118,7 @@ RUN git clone https://github.com/adah1972/libunibreak.git && \
     ldconfig && \
     cd .. && rm -rf libunibreak
 
-# Build and install libass with libunibreak support and ASS_FEATURE_WRAP_UNICODE enabled
+# Build and install libass with libunibreak support
 RUN git clone https://github.com/libass/libass.git && \
     cd libass && \
     autoreconf -i && \
@@ -113,13 +129,23 @@ RUN git clone https://github.com/libass/libass.git && \
     ldconfig && \
     cd .. && rm -rf libass
 
-# Build and install FFmpeg with all required features
+# Build and install FFmpeg with architecture-aware paths
 RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
     cd ffmpeg && \
     git checkout n7.0.2 && \
-    PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig" \
+    ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        LIB_ARCH="x86_64-linux-gnu"; \
+    elif [ "$ARCH" = "arm64" ]; then \
+        LIB_ARCH="aarch64-linux-gnu"; \
+    elif [ "$ARCH" = "armhf" ]; then \
+        LIB_ARCH="arm-linux-gnueabihf"; \
+    else \
+        LIB_ARCH="x86_64-linux-gnu"; \
+    fi && \
+    PKG_CONFIG_PATH="/usr/lib/${LIB_ARCH}/pkgconfig:/usr/local/lib/pkgconfig" \
     CFLAGS="-I/usr/include/freetype2" \
-    LDFLAGS="-L/usr/lib/x86_64-linux-gnu" \
+    LDFLAGS="-L/usr/lib/${LIB_ARCH}" \
     ./configure --prefix=/usr/local \
         --enable-gpl \
         --enable-pthreads \
@@ -146,19 +172,19 @@ RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
         --enable-libsrt \
         --enable-filter=drawtext \
         --extra-cflags="-I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include" \
-        --extra-ldflags="-L/usr/lib/x86_64-linux-gnu -lfreetype -lfontconfig" \
+        --extra-ldflags="-L/usr/lib/${LIB_ARCH} -lfreetype -lfontconfig" \
         --enable-gnutls \
     && make -j$(nproc) && \
     make install && \
     cd .. && rm -rf ffmpeg
 
-# Add /usr/local/bin to PATH (if not already included)
+# Add /usr/local/bin to PATH
 ENV PATH="/usr/local/bin:${PATH}"
 
 # Copy fonts into the custom fonts directory
 COPY ./fonts /usr/share/fonts/custom
 
-# Rebuild the font cache so that fontconfig can see the custom fonts
+# Rebuild the font cache
 RUN fc-cache -f -v
 
 # Set work directory
@@ -167,13 +193,13 @@ WORKDIR /app
 # Set environment variable for Whisper cache
 ENV WHISPER_CACHE_DIR="/app/whisper_cache"
 
-# Create cache directory (no need for chown here yet)
+# Create cache directory
 RUN mkdir -p ${WHISPER_CACHE_DIR} 
 
 # Copy the requirements file first to optimize caching
 COPY requirements.txt .
 
-# Install Python dependencies, upgrade pip 
+# Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install openai-whisper && \
@@ -183,10 +209,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Create the appuser 
 RUN useradd -m appuser 
 
-# Give appuser ownership of the /app directory (including whisper_cache)
+# Give appuser ownership of the /app directory
 RUN chown appuser:appuser /app 
 
-# Important: Switch to the appuser before downloading the model
+# Switch to the appuser before downloading the model
 USER appuser
 
 RUN python -c "import os; print(os.environ.get('WHISPER_CACHE_DIR')); import whisper; whisper.load_model('base')"
