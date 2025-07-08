@@ -1,21 +1,18 @@
-# Base image
-FROM python:3.9-slim
+# Base image with multi-platform support
+FROM --platform=$TARGETPLATFORM python:3.9-slim
 
-# Detect architecture and set appropriate library paths
-RUN ARCH=$(dpkg --print-architecture) && \
-    echo "Detected architecture: $ARCH" && \
-    if [ "$ARCH" = "amd64" ]; then \
-        echo "export LIB_ARCH=x86_64-linux-gnu" >> /etc/environment; \
-    elif [ "$ARCH" = "arm64" ]; then \
-        echo "export LIB_ARCH=aarch64-linux-gnu" >> /etc/environment; \
-    elif [ "$ARCH" = "armhf" ]; then \
-        echo "export LIB_ARCH=arm-linux-gnueabihf" >> /etc/environment; \
-    else \
-        echo "export LIB_ARCH=x86_64-linux-gnu" >> /etc/environment; \
-    fi
+# Build arguments for multi-platform support
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG BUILDPLATFORM
 
-# Source the environment
-RUN . /etc/environment
+# Set library architecture based on target architecture
+RUN case ${TARGETARCH} in \
+    amd64) echo "x86_64-linux-gnu" > /tmp/lib_arch ;; \
+    arm64) echo "aarch64-linux-gnu" > /tmp/lib_arch ;; \
+    arm) echo "arm-linux-gnueabihf" > /tmp/lib_arch ;; \
+    *) echo "x86_64-linux-gnu" > /tmp/lib_arch ;; \
+    esac
 
 # Install system dependencies, build tools, and libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -50,6 +47,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsvtav1-dev \
     libzimg-dev \
     libwebp-dev \
+    libunibreak-dev \
+    libglib2.0-dev \
     git \
     pkg-config \
     autoconf \
@@ -71,16 +70,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install SRT from source (latest version using cmake)
+# Install SRT from source
 RUN git clone https://github.com/Haivision/srt.git && \
     cd srt && \
     mkdir build && cd build && \
     cmake .. && \
     make -j$(nproc) && \
     make install && \
-    cd ../.. && rm -rf srt
+    cd ../../.. && rm -rf srt && \
+    ldconfig
 
-# Install SVT-AV1 from source (with ARM optimizations where available)
+# Install SVT-AV1 from source with ARM optimizations
 RUN git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git && \
     cd SVT-AV1 && \
     git checkout v0.9.0 && \
@@ -88,7 +88,8 @@ RUN git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git && \
     cmake .. -DNATIVE=OFF && \
     make -j$(nproc) && \
     make install && \
-    cd ../.. && rm -rf SVT-AV1
+    cd ../../.. && rm -rf SVT-AV1 && \
+    ldconfig
 
 # Install libvmaf from source
 RUN git clone https://github.com/Netflix/vmaf.git && \
@@ -96,19 +97,20 @@ RUN git clone https://github.com/Netflix/vmaf.git && \
     meson build --buildtype release && \
     ninja -C build && \
     ninja -C build install && \
-    cd ../.. && rm -rf vmaf && \
+    cd ../../.. && rm -rf vmaf && \
     ldconfig
 
-# Manually build and install fdk-aac
+# Build and install fdk-aac
 RUN git clone https://github.com/mstorsjo/fdk-aac && \
     cd fdk-aac && \
     autoreconf -fiv && \
     ./configure && \
     make -j$(nproc) && \
     make install && \
-    cd .. && rm -rf fdk-aac
+    cd .. && rm -rf fdk-aac && \
+    ldconfig
 
-# Install libunibreak
+# Build and install libunibreak from source (for latest version)
 RUN git clone https://github.com/adah1972/libunibreak.git && \
     cd libunibreak && \
     ./autogen.sh && \
@@ -122,9 +124,21 @@ RUN git clone https://github.com/adah1972/libunibreak.git && \
 RUN git clone https://github.com/libass/libass.git && \
     cd libass && \
     autoreconf -i && \
-    ./configure --enable-libunibreak || { cat config.log; exit 1; } && \
-    mkdir -p /app && echo "Config log located at: /app/config.log" && cp config.log /app/config.log && \
-    make -j$(nproc) || { echo "Libass build failed"; exit 1; } && \
+    PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/lib/pkgconfig" \
+    CFLAGS="-I/usr/local/include" \
+    LDFLAGS="-L/usr/local/lib" \
+    ./configure --enable-libunibreak --enable-fontconfig --enable-harfbuzz || { \
+        echo "=== CONFIGURATION FAILED ==="; \
+        echo "Config log contents:"; \
+        cat config.log; \
+        exit 1; \
+    } && \
+    mkdir -p /app && cp config.log /app/config.log && \
+    make -j$(nproc) || { \
+        echo "=== BUILD FAILED ==="; \
+        echo "Libass build failed"; \
+        exit 1; \
+    } && \
     make install && \
     ldconfig && \
     cd .. && rm -rf libass
@@ -133,15 +147,11 @@ RUN git clone https://github.com/libass/libass.git && \
 RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
     cd ffmpeg && \
     git checkout n7.0.2 && \
-    ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "amd64" ]; then \
-        LIB_ARCH="x86_64-linux-gnu"; \
-    elif [ "$ARCH" = "arm64" ]; then \
-        LIB_ARCH="aarch64-linux-gnu"; \
-    elif [ "$ARCH" = "armhf" ]; then \
-        LIB_ARCH="arm-linux-gnueabihf"; \
+    LIB_ARCH=$(cat /tmp/lib_arch) && \
+    if [ "${TARGETARCH}" = "arm64" ] || [ "${TARGETARCH}" = "arm" ]; then \
+        NEON_FLAG="--enable-neon"; \
     else \
-        LIB_ARCH="x86_64-linux-gnu"; \
+        NEON_FLAG=""; \
     fi && \
     PKG_CONFIG_PATH="/usr/lib/${LIB_ARCH}/pkgconfig:/usr/local/lib/pkgconfig" \
     CFLAGS="-I/usr/include/freetype2" \
@@ -149,7 +159,7 @@ RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
     ./configure --prefix=/usr/local \
         --enable-gpl \
         --enable-pthreads \
-        --enable-neon \
+        ${NEON_FLAG} \
         --enable-libaom \
         --enable-libdav1d \
         --enable-librav1e \
@@ -193,8 +203,10 @@ WORKDIR /app
 # Set environment variable for Whisper cache
 ENV WHISPER_CACHE_DIR="/app/whisper_cache"
 
-# Create cache directory
-RUN mkdir -p ${WHISPER_CACHE_DIR} 
+# Create the appuser and set up directories
+RUN useradd -m appuser && \
+    mkdir -p ${WHISPER_CACHE_DIR} && \
+    chown -R appuser:appuser /app
 
 # Copy the requirements file first to optimize caching
 COPY requirements.txt .
@@ -204,17 +216,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install openai-whisper && \
     pip install playwright && \
-    pip install jsonschema 
-
-# Create the appuser 
-RUN useradd -m appuser 
-
-# Give appuser ownership of the /app directory
-RUN chown appuser:appuser /app 
+    pip install jsonschema
 
 # Switch to the appuser before downloading the model
 USER appuser
 
+# Download Whisper model
 RUN python -c "import os; print(os.environ.get('WHISPER_CACHE_DIR')); import whisper; whisper.load_model('base')"
 
 # Install Playwright Chromium browser as appuser
@@ -229,6 +236,7 @@ EXPOSE 8080
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
+# Create the startup script
 RUN echo '#!/bin/bash\n\
 gunicorn --bind 0.0.0.0:8080 \
     --workers ${GUNICORN_WORKERS:-2} \
@@ -238,5 +246,5 @@ gunicorn --bind 0.0.0.0:8080 \
     app:app' > /app/run_gunicorn.sh && \
     chmod +x /app/run_gunicorn.sh
 
-# Run the shell script
+# Run the application
 CMD ["/app/run_gunicorn.sh"]
