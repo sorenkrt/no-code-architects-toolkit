@@ -1,6 +1,6 @@
 services:
   nca-toolkit:
-    image: stephengpope/no-code-architects-toolkit:latest
+    build: .
     container_name: nca-toolkit
     ports:
       - "8081:8080"
