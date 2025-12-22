@@ -11,7 +11,7 @@ services:
       - S3_SECRET_KEY=${S3_SECRET_KEY}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - S3_REGION=${S3_REGION}
-      - WHISPER_MODEL_SIZE=large-v3
+      - WHISPER_MODEL_SIZE=large-v3-turbo
     volumes:
       - ncat-data:/data
     restart: unless-stopped
