@@ -189,7 +189,9 @@ RUN chown appuser:appuser /app
 # Important: Switch to the appuser before downloading the model
 USER appuser
 
-RUN python -c "import os; print(os.environ.get('WHISPER_CACHE_DIR')); import whisper; whisper.load_model('base')"
+ARG WHISPER_MODEL_SIZE=base
+ENV WHISPER_MODEL_SIZE=$WHISPER_MODEL_SIZE
+RUN python -c "import os; print(os.environ.get('WHISPER_CACHE_DIR')); import whisper; whisper.load_model(os.environ.get('WHISPER_MODEL_SIZE'))"
 
 # Install Playwright Chromium browser as appuser
 RUN playwright install chromium

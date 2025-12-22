@@ -64,7 +64,8 @@ def rgb_to_ass_color(rgb_color):
 
 def generate_transcription(video_path, language='auto'):
     try:
-        model = whisper.load_model("base")
+        model_size = os.environ.get('WHISPER_MODEL_SIZE', 'base')
+        model = whisper.load_model(model_size)
         transcription_options = {
             'word_timestamps': True,
             'verbose': True,
