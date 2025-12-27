@@ -29,6 +29,11 @@ from services.cloud_storage import upload_file  # Ensure this import is present
 import requests  # Ensure requests is imported for webhook handling
 from urllib.parse import urlparse
 from config import LOCAL_STORAGE_PATH
+import threading
+
+# Global variable to cache the model
+_whisper_model = None
+_model_lock = threading.Lock()
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -63,16 +68,22 @@ def rgb_to_ass_color(rgb_color):
     return "&H00FFFFFF"
 
 def generate_transcription(video_path, language='auto'):
+    global _whisper_model
     try:
-        model_size = os.environ.get('WHISPER_MODEL_SIZE', 'base')
-        model = whisper.load_model(model_size)
+        if _whisper_model is None:
+            with _model_lock:
+                if _whisper_model is None:
+                    model_size = os.environ.get('WHISPER_MODEL_SIZE', 'base')
+                    logger.info(f"Loading Whisper model: {model_size}")
+                    _whisper_model = whisper.load_model(model_size)
+        
         transcription_options = {
             'word_timestamps': True,
             'verbose': True,
         }
         if language != 'auto':
             transcription_options['language'] = language
-        result = model.transcribe(video_path, **transcription_options)
+        result = _whisper_model.transcribe(video_path, **transcription_options)
         logger.info(f"Transcription generated successfully for video: {video_path}")
         return result
     except Exception as e:
