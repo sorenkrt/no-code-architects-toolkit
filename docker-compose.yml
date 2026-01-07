@@ -12,6 +12,7 @@ services:
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - S3_REGION=${S3_REGION}
       - WHISPER_MODEL_SIZE=large-v3-turbo
+      - GUNICORN_WORKERS=1
       - GUNICORN_TIMEOUT=3600
     volumes:
       - ncat-data:/data
