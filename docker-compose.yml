@@ -19,7 +19,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "4"  
+          cpus: "5.5"  
     restart: unless-stopped
     networks:
       - services-n8nwithpostgres-ogzytr
