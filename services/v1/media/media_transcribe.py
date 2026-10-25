@@ -21,7 +21,7 @@ import whisper
 import srt
 from datetime import timedelta
 from whisper.utils import WriteSRT, WriteVTT
-from services.file_management import download_file
+from services.file_management import download_file, remove_files
 import logging
 from config import LOCAL_STORAGE_PATH
 
@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO)
 def process_transcribe_media(media_url, task, include_text, include_srt, include_segments, word_timestamps, response_type, language, job_id, words_per_line=None):
     """Transcribe or translate media and return the transcript/translation, SRT or VTT file path."""
     logger.info(f"Starting {task} for media URL: {media_url}")
-    input_filename = download_file(media_url, os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_input"))
+    input_filename = download_file(media_url, LOCAL_STORAGE_PATH)
     logger.info(f"Downloaded media to local file: {input_filename}")
 
     try:
@@ -120,8 +120,6 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
         if include_segments is True:
             segments_json = result['segments']
 
-        os.remove(input_filename)
-        logger.info(f"Removed local file: {input_filename}")
         logger.info(f"{task.capitalize()} successful, output type: {response_type}")
 
         if response_type == "direct":
@@ -133,7 +131,7 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
                 with open(text_filename, 'w') as f:
                     f.write(text)
             else:
-                text_file = None
+                text_filename = None
             
             if include_srt is True:
                 srt_filename = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}.srt")
@@ -154,3 +152,5 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
     except Exception as e:
         logger.error(f"{task.capitalize()} failed: {str(e)}")
         raise
+    finally:
+        remove_files(input_filename)

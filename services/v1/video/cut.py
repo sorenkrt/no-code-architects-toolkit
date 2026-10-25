@@ -72,7 +72,7 @@ def cut_media(video_url, cuts, job_id=None, video_codec='libx264', video_preset=
         str: Path to the processed local file
     """
     logger.info(f"Starting video cut operation for {video_url}")
-    input_filename = download_file(video_url, os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_input"))
+    input_filename = download_file(video_url, LOCAL_STORAGE_PATH)
     logger.info(f"Downloaded video to local file: {input_filename}")
     
     temp_files = []

@@ -18,9 +18,22 @@
 
 import os
 import uuid
+import logging
 import requests
 from urllib.parse import urlparse, parse_qs
 import mimetypes
+
+logger = logging.getLogger(__name__)
+
+def remove_files(*paths):
+    """Delete local temp files. Skips None and missing paths; never raises, so it is safe in `finally`."""
+    for path in paths:
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            os.remove(path)
+        except OSError as e:
+            logger.warning(f"Failed to remove temp file {path}: {e}")
 
 def get_extension_from_url(url):
     """Extract file extension from URL or content type.

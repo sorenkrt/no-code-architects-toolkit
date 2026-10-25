@@ -32,7 +32,7 @@ def process_video_concatenate(media_urls, job_id, webhook_url=None):
         # Download all media files
         for i, media_item in enumerate(media_urls):
             url = media_item['video_url']
-            input_filename = download_file(url, os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_input_{i}"))
+            input_filename = download_file(url, LOCAL_STORAGE_PATH)
             input_files.append(input_filename)
 
         # Generate an absolute path concat list file for FFmpeg

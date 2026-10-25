@@ -22,6 +22,8 @@ import logging
 from services.ass_toolkit import generate_ass_captions_v1
 from services.authentication import authenticate
 from services.cloud_storage import upload_file
+from services.file_management import download_file, remove_files
+from config import LOCAL_STORAGE_PATH
 import os
 import requests  # Ensure requests is imported for webhook handling
 
@@ -120,13 +122,21 @@ def caption_video_v1(job_id, data):
     logger.info(f"Job {job_id}: Replace rules received: {replace}")
     logger.info(f"Job {job_id}: Exclude time ranges received: {exclude_time_ranges}")
 
+    ass_path = None
+    video_path = None
+    output_path = None
     try:
+        # Download the video once; it is used for resolution/transcription and for rendering
+        try:
+            video_path = download_file(video_url, LOCAL_STORAGE_PATH)
+            logger.info(f"Job {job_id}: Video downloaded to {video_path}")
+        except Exception as e:
+            logger.error(f"Job {job_id}: Video download error: {str(e)}")
+            return {"error": str(e)}, "/v1/video/caption", 400
+
         # Do NOT combine position and alignment. Keep them separate.
-        # Just pass settings directly to process_captioning_v1.
-        # This ensures position and alignment remain independent keys.
-        
-        # Process video with the enhanced v1 service
-        output = generate_ass_captions_v1(video_url, captions, settings, replace, exclude_time_ranges, job_id, language)
+        # Just pass settings directly to generate_ass_captions_v1.
+        output = generate_ass_captions_v1(video_url, captions, settings, replace, exclude_time_ranges, job_id, language, video_path=video_path)
         
         if isinstance(output, dict) and 'error' in output:
             # Check if this is a font-related error by checking for 'available_fonts' key
@@ -145,17 +155,6 @@ def caption_video_v1(job_id, data):
         output_filename = f"{job_id}_captioned.mp4"
         output_path = os.path.join(os.path.dirname(ass_path), output_filename)
 
-        # Download the video (if not already local)
-        video_path = None
-        try:
-            from services.file_management import download_file
-            from config import LOCAL_STORAGE_PATH
-            video_path = download_file(video_url, LOCAL_STORAGE_PATH)
-            logger.info(f"Job {job_id}: Video downloaded to {video_path}")
-        except Exception as e:
-            logger.error(f"Job {job_id}: Video download error: {str(e)}")
-            return {"error": str(e)}, "/v1/video/caption", 500
-
         # Render the video with subtitles using FFmpeg
         try:
             import ffmpeg
@@ -169,19 +168,15 @@ def caption_video_v1(job_id, data):
             logger.error(f"Job {job_id}: FFmpeg error: {str(e)}")
             return {"error": f"FFmpeg error: {str(e)}"}, "/v1/video/caption", 500
 
-        # Clean up the ASS file after use
-        os.remove(ass_path)
-
         # Upload the captioned video
         cloud_url = upload_file(output_path)
         logger.info(f"Job {job_id}: Captioned video uploaded to cloud storage: {cloud_url}")
-
-        # Clean up the output file after upload
-        os.remove(output_path)
-        logger.info(f"Job {job_id}: Cleaned up local output file")
 
         return cloud_url, "/v1/video/caption", 200
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error during captioning process - {str(e)}", exc_info=True)
         return {"error": str(e)}, "/v1/video/caption", 500
+    finally:
+        remove_files(ass_path, video_path, output_path)
+        logger.info(f"Job {job_id}: Cleaned up local files")

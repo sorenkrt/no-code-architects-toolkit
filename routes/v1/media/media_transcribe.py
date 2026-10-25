@@ -23,6 +23,7 @@ import os
 from services.v1.media.media_transcribe import process_transcribe_media
 from services.authentication import authenticate
 from services.cloud_storage import upload_file
+from services.file_management import remove_files
 
 v1_media_transcribe_bp = Blueprint('v1_media_transcribe', __name__)
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ def transcribe(job_id, data):
 
     logger.info(f"Job {job_id}: Received transcription request for {media_url}")
 
+    result = None
     try:
         result = process_transcribe_media(media_url, task, include_text, include_srt, include_segments, word_timestamps, response_type, language, job_id, words_per_line)
         logger.info(f"Job {job_id}: Transcription process completed successfully")
@@ -92,17 +94,11 @@ def transcribe(job_id, data):
                 "segments_url": upload_file(result[2]) if include_segments is True else None,
             }
 
-            if include_text is True:
-                os.remove(result[0])  # Remove the temporary file after uploading
-            
-            if include_srt is True:
-                os.remove(result[1])
-
-            if include_segments is True:
-                os.remove(result[2])
-            
             return cloud_urls, "/v1/transcribe/media", 200
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error during transcription process - {str(e)}")
         return str(e), "/v1/transcribe/media", 500
+    finally:
+        if response_type != "direct" and result:
+            remove_files(*result)

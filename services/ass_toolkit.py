@@ -24,7 +24,7 @@ import whisper
 from datetime import timedelta
 import srt
 import re
-from services.file_management import download_file
+from services.file_management import download_file, remove_files
 from services.cloud_storage import upload_file  # Ensure this import is present
 import requests  # Ensure requests is imported for webhook handling
 from urllib.parse import urlparse
@@ -749,12 +749,15 @@ def normalize_exclude_time_ranges(exclude_time_ranges):
         norm.append({"start": start, "end": end})
     return norm
 
-def generate_ass_captions_v1(video_url, captions, settings, replace, exclude_time_ranges, job_id, language='auto', PlayResX=None, PlayResY=None):
+def generate_ass_captions_v1(video_url, captions, settings, replace, exclude_time_ranges, job_id, language='auto', PlayResX=None, PlayResY=None, video_path=None):
     """
     Captioning process with transcription fallback and multiple styles.
     Integrates with the updated logic for positioning and alignment.
     If PlayResX and PlayResY are provided, use them for ASS generation; otherwise, get from video.
+    If video_path (an already-downloaded local copy of video_url) is given, it is used instead of
+    downloading again and is left for the caller to delete.
     """
+    downloaded_path = None  # Only a copy downloaded here is deleted here
     try:
         # Normalize exclude_time_ranges to ensure start/end are floats
         if exclude_time_ranges:
@@ -808,14 +811,15 @@ def generate_ass_captions_v1(video_url, captions, settings, replace, exclude_tim
         else:
             captions_content = None
 
-        # Download the video
-        try:
-            video_path = download_file(video_url, LOCAL_STORAGE_PATH)
-            logger.info(f"Job {job_id}: Video downloaded to {video_path}")
-        except Exception as e:
-            logger.error(f"Job {job_id}: Video download error: {str(e)}")
-            # For non-font errors, do NOT include available_fonts
-            return {"error": str(e)}
+        # Download the video unless the caller already has a local copy
+        if video_path is None:
+            try:
+                video_path = downloaded_path = download_file(video_url, LOCAL_STORAGE_PATH)
+                logger.info(f"Job {job_id}: Video downloaded to {video_path}")
+            except Exception as e:
+                logger.error(f"Job {job_id}: Video download error: {str(e)}")
+                # For non-font errors, do NOT include available_fonts
+                return {"error": str(e)}
 
         # Get video resolution, unless provided
         if PlayResX is not None and PlayResY is not None:
@@ -889,3 +893,5 @@ def generate_ass_captions_v1(video_url, captions, settings, replace, exclude_tim
     except Exception as e:
         logger.error(f"Job {job_id}: Error in generate_ass_captions_v1: {str(e)}", exc_info=True)
         return {"error": str(e)}
+    finally:
+        remove_files(downloaded_path)

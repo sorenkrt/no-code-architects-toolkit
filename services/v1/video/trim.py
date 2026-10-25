@@ -78,7 +78,7 @@ def trim_video(video_url, start=None, end=None, job_id=None, video_codec='libx26
     if not job_id:
         job_id = str(uuid.uuid4())
         
-    input_filename = download_file(video_url, os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_input"))
+    input_filename = download_file(video_url, LOCAL_STORAGE_PATH)
     logger.info(f"Downloaded video to local file: {input_filename}")
     
     try:

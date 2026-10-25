@@ -20,7 +20,7 @@ import os
 import subprocess
 import json
 import re
-from services.file_management import download_file
+from services.file_management import download_file, remove_files
 from config import LOCAL_STORAGE_PATH
 
 def get_extension_from_format(format_name):
@@ -106,88 +106,90 @@ def process_ffmpeg_compose(data, job_id):
         if "argument" in option and option["argument"] is not None:
             command.append(str(option["argument"]))
     
-    # Add inputs
     input_paths = []
-    download_cache = {}  # cache of url -> local_path
-    for input_data in data["inputs"]:
-        if "options" in input_data:
-            for option in input_data["options"]:
+    subtitles_paths = []  # Track downloaded subtitles/filter files
+    try:
+        # Add inputs
+        download_cache = {}  # cache of url -> local_path
+        for input_data in data["inputs"]:
+            if "options" in input_data:
+                for option in input_data["options"]:
+                    command.append(option["option"])
+                    if "argument" in option and option["argument"] is not None:
+                        command.append(str(option["argument"]))
+            file_url = input_data["file_url"]
+            if file_url in download_cache:
+                input_path = download_cache[file_url]
+            else:
+                input_path = download_file(file_url, LOCAL_STORAGE_PATH)
+                download_cache[file_url] = input_path
+            input_paths.append(input_path)
+            command.extend(["-i", input_path])
+
+        # Add filters
+        if data.get("filters"):
+            new_filters = []
+            for filter_obj in data["filters"]:
+                filter_str = filter_obj["filter"]
+                def replace_url(match):
+                    prefix = match.group(1)
+                    filter_type = match.group(2)
+                    quote = match.group(3)
+                    url = match.group(4)
+                    closing_quote = match.group(5)
+                    trailing = match.group(6) or ''
+                    if not url or url.strip() == '':
+                        print(f"[DEBUG] Skipping empty URL for filter: {match.group(0)}")
+                        return match.group(0)
+                    print(f"[DEBUG] Parsed URL for filter: {url}")
+                    local_path = download_file(url, LOCAL_STORAGE_PATH)
+                    subtitles_paths.append(local_path)
+                    fixed_path = local_path.replace('\\', '/')
+                    return f"{prefix}{filter_type}={quote}{fixed_path}{closing_quote}{trailing}"
+                # Regex: (.*?)(subtitles|ass)=(['"])(https?://[^'\"]+)(['"])(.*)
+                pattern = r"(.*?)(subtitles|ass)=([\'\"])(https?://[^'\"]+)([\'\"])(.*)"
+                filter_str = re.sub(pattern, replace_url, filter_str)
+                new_filters.append(filter_str)
+            filter_complex = ";".join(new_filters)
+            command.extend(["-filter_complex", filter_complex])
+
+        # Add outputs
+        for i, output in enumerate(data["outputs"]):
+            format_name = None
+            for option in output["options"]:
+                if option["option"] == "-f":
+                    format_name = option.get("argument")
+                    break
+
+            extension = get_extension_from_format(format_name) if format_name else 'mp4'
+            output_filename = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_output_{i}.{extension}")
+            output_filenames.append(output_filename)
+
+            for option in output["options"]:
                 command.append(option["option"])
                 if "argument" in option and option["argument"] is not None:
                     command.append(str(option["argument"]))
-        file_url = input_data["file_url"]
-        if file_url in download_cache:
-            input_path = download_cache[file_url]
-        else:
-            input_path = download_file(file_url, LOCAL_STORAGE_PATH)
-            download_cache[file_url] = input_path
-        input_paths.append(input_path)
-        command.extend(["-i", input_path])
-    
-    # Add filters
-    subtitles_paths = []  # Track downloaded subtitles/filter files
-    if data.get("filters"):
-        new_filters = []
-        for filter_obj in data["filters"]:
-            filter_str = filter_obj["filter"]
-            def replace_url(match):
-                prefix = match.group(1)
-                filter_type = match.group(2)
-                quote = match.group(3)
-                url = match.group(4)
-                closing_quote = match.group(5)
-                trailing = match.group(6) or ''
-                if not url or url.strip() == '':
-                    print(f"[DEBUG] Skipping empty URL for filter: {match.group(0)}")
-                    return match.group(0)
-                print(f"[DEBUG] Parsed URL for filter: {url}")
-                local_path = download_file(url, LOCAL_STORAGE_PATH)
-                subtitles_paths.append(local_path)
-                fixed_path = local_path.replace('\\', '/')
-                return f"{prefix}{filter_type}={quote}{fixed_path}{closing_quote}{trailing}"
-            # Regex: (.*?)(subtitles|ass)=(['"])(https?://[^'\"]+)(['"])(.*)
-            pattern = r"(.*?)(subtitles|ass)=([\'\"])(https?://[^'\"]+)([\'\"])(.*)"
-            filter_str = re.sub(pattern, replace_url, filter_str)
-            new_filters.append(filter_str)
-        filter_complex = ";".join(new_filters)
-        command.extend(["-filter_complex", filter_complex])
-    
-    # Add outputs
-    for i, output in enumerate(data["outputs"]):
-        format_name = None
-        for option in output["options"]:
-            if option["option"] == "-f":
-                format_name = option.get("argument")
-                break
-        
-        extension = get_extension_from_format(format_name) if format_name else 'mp4'
-        output_filename = os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_output_{i}.{extension}")
-        output_filenames.append(output_filename)
-        
-        for option in output["options"]:
-            command.append(option["option"])
-            if "argument" in option and option["argument"] is not None:
-                command.append(str(option["argument"]))
-        command.append(output_filename)
-    
-    # Execute FFmpeg command
-    try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        raise Exception(f"FFmpeg command failed: {e.stderr}")
-    
-    # Clean up input files
-    for input_path in input_paths:
-        if os.path.exists(input_path):
-            os.remove(input_path)
-    # Clean up subtitles/filter files
-    for subtitles_path in subtitles_paths:
-        if os.path.exists(subtitles_path):
-            os.remove(subtitles_path)
+            command.append(output_filename)
+
+        # Execute FFmpeg command
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            remove_files(*output_filenames)  # Drop partial outputs
+            raise Exception(f"FFmpeg command failed: {e.stderr}")
+    finally:
+        # Inputs and subtitle/filter files are never needed past this point
+        remove_files(*input_paths, *subtitles_paths)
+
     # Get metadata if requested
     metadata = []
     if data.get("metadata"):
-        for output_filename in output_filenames:
-            metadata.append(get_metadata(output_filename, data["metadata"], job_id))
+        try:
+            for output_filename in output_filenames:
+                metadata.append(get_metadata(output_filename, data["metadata"], job_id))
+        except Exception:
+            thumbnails = [f"{os.path.splitext(f)[0]}_thumbnail.jpg" for f in output_filenames]
+            remove_files(*output_filenames, *thumbnails)
+            raise
     
     return output_filenames, metadata

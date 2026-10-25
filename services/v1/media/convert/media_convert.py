@@ -43,7 +43,7 @@ def process_media_convert(media_url, job_id, output_format='mp4', video_codec='l
     Returns:
         str: Path to the converted output file
     """
-    input_filename = download_file(media_url, os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_input"))
+    input_filename = download_file(media_url, LOCAL_STORAGE_PATH)
     output_filename = f"{job_id}.{output_format}"
     output_path = os.path.join(LOCAL_STORAGE_PATH, output_filename)
 

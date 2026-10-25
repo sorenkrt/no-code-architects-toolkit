@@ -26,7 +26,7 @@ STORAGE_PATH = "/tmp/"
 
 def process_conversion(media_url, job_id, bitrate='128k', webhook_url=None):
     """Convert media to MP3 format with specified bitrate."""
-    input_filename = download_file(media_url, os.path.join(STORAGE_PATH, f"{job_id}_input"))
+    input_filename = download_file(media_url, STORAGE_PATH)
     output_filename = f"{job_id}.mp3"
     output_path = os.path.join(STORAGE_PATH, output_filename)
 
@@ -62,7 +62,7 @@ def process_video_combination(media_urls, job_id, webhook_url=None):
         # Download all media files
         for i, media_item in enumerate(media_urls):
             url = media_item['video_url']
-            input_filename = download_file(url, os.path.join(STORAGE_PATH, f"{job_id}_input_{i}"))
+            input_filename = download_file(url, STORAGE_PATH)
             input_files.append(input_filename)
 
         # Generate an absolute path concat list file for FFmpeg

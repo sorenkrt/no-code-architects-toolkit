@@ -23,6 +23,7 @@ from app_utils import *
 from services.v1.ffmpeg.ffmpeg_compose import process_ffmpeg_compose
 from services.authentication import authenticate
 from services.cloud_storage import upload_file
+from services.file_management import remove_files
 
 v1_ffmpeg_compose_bp = Blueprint('v1_ffmpeg_compose', __name__)
 logger = logging.getLogger(__name__)
@@ -116,6 +117,8 @@ logger = logging.getLogger(__name__)
 def ffmpeg_api(job_id, data):
     logger.info(f"Job {job_id}: Received flexible FFmpeg request")
 
+    output_filenames = []
+    metadata = []
     try:
         output_filenames, metadata = process_ffmpeg_compose(data, job_id)
         
@@ -134,11 +137,10 @@ def ffmpeg_api(job_id, data):
                             thumbnail_url = upload_file(thumbnail_path)
                             del output_metadata['thumbnail']
                             output_metadata['thumbnail_url'] = thumbnail_url
-                            os.remove(thumbnail_path)  # Clean up local thumbnail file
+                            remove_files(thumbnail_path)
                     output_info.update(output_metadata)
                 
                 output_urls.append(output_info)
-                os.remove(output_filename)  # Clean up local output file after upload
             else:
                 raise Exception(f"Expected output file {output_filename} not found")
 
@@ -147,3 +149,6 @@ def ffmpeg_api(job_id, data):
     except Exception as e:
         logger.error(f"Job {job_id}: Error processing FFmpeg request - {str(e)}")
         return str(e), "/v1/ffmpeg/compose", 500
+    finally:
+        thumbnails = [m.get('thumbnail') for m in metadata if isinstance(m, dict)]
+        remove_files(*output_filenames, *thumbnails)

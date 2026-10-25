@@ -4,6 +4,7 @@ import logging
 from services.ass_toolkit import generate_ass_captions_v1
 from services.authentication import authenticate
 from services.cloud_storage import upload_file
+from services.file_management import remove_files
 import os
 import requests
 
@@ -110,6 +111,7 @@ def generate_ass_v1(job_id, data):
     logger.info(f"Job {job_id}: Replace rules received: {replace}")
     logger.info(f"Job {job_id}: Exclude time ranges received: {exclude_time_ranges}")
 
+    ass_path = None
     try:
         output = generate_ass_captions_v1(
             media_url,
@@ -134,11 +136,10 @@ def generate_ass_v1(job_id, data):
         cloud_url = upload_file(ass_path)
         logger.info(f"Job {job_id}: ASS file uploaded to cloud storage: {cloud_url}")
 
-        os.remove(ass_path)
-        logger.info(f"Job {job_id}: Cleaned up local ASS file")
-
         return cloud_url, "/v1/media/generate/ass", 200
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error during ASS generation process - {str(e)}", exc_info=True)
         return {"error": str(e)}, "/v1/media/generate/ass", 500
+    finally:
+        remove_files(ass_path)

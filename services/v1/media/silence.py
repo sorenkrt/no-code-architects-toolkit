@@ -45,7 +45,7 @@ def detect_silence(media_url, start_time=None, end_time=None, noise_threshold="-
         list: List of dictionaries containing silence intervals with start, end, and duration
     """
     logger.info(f"Starting silence detection for media URL: {media_url}")
-    input_filename = download_file(media_url, os.path.join(LOCAL_STORAGE_PATH, f"{job_id}_input"))
+    input_filename = download_file(media_url, LOCAL_STORAGE_PATH)
     logger.info(f"Downloaded media to local file: {input_filename}")
     
     try:
