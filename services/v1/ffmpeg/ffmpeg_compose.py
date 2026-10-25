@@ -108,13 +108,19 @@ def process_ffmpeg_compose(data, job_id):
     
     # Add inputs
     input_paths = []
+    download_cache = {}  # cache of url -> local_path
     for input_data in data["inputs"]:
         if "options" in input_data:
             for option in input_data["options"]:
                 command.append(option["option"])
                 if "argument" in option and option["argument"] is not None:
                     command.append(str(option["argument"]))
-        input_path = download_file(input_data["file_url"], LOCAL_STORAGE_PATH)
+        file_url = input_data["file_url"]
+        if file_url in download_cache:
+            input_path = download_cache[file_url]
+        else:
+            input_path = download_file(file_url, LOCAL_STORAGE_PATH)
+            download_cache[file_url] = input_path
         input_paths.append(input_path)
         command.extend(["-i", input_path])
     
@@ -124,14 +130,24 @@ def process_ffmpeg_compose(data, job_id):
         new_filters = []
         for filter_obj in data["filters"]:
             filter_str = filter_obj["filter"]
-            def replace_subtitles_url(match):
-                url = match.group(1)
+            def replace_url(match):
+                prefix = match.group(1)
+                filter_type = match.group(2)
+                quote = match.group(3)
+                url = match.group(4)
+                closing_quote = match.group(5)
+                trailing = match.group(6) or ''
+                if not url or url.strip() == '':
+                    print(f"[DEBUG] Skipping empty URL for filter: {match.group(0)}")
+                    return match.group(0)
+                print(f"[DEBUG] Parsed URL for filter: {url}")
                 local_path = download_file(url, LOCAL_STORAGE_PATH)
                 subtitles_paths.append(local_path)
                 fixed_path = local_path.replace('\\', '/')
-                return f"subtitles='{fixed_path}"  # keep the opening quote
-            # Regex: subtitles='<url>' or subtitles="<url>"
-            filter_str = re.sub(r"subtitles=['\"]([^'\"]+)", replace_subtitles_url, filter_str)
+                return f"{prefix}{filter_type}={quote}{fixed_path}{closing_quote}{trailing}"
+            # Regex: (.*?)(subtitles|ass)=(['"])(https?://[^'\"]+)(['"])(.*)
+            pattern = r"(.*?)(subtitles|ass)=([\'\"])(https?://[^'\"]+)([\'\"])(.*)"
+            filter_str = re.sub(pattern, replace_url, filter_str)
             new_filters.append(filter_str)
         filter_complex = ";".join(new_filters)
         command.extend(["-filter_complex", filter_complex])

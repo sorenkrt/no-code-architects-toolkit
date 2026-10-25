@@ -35,9 +35,12 @@ v1_s3_upload_bp = Blueprint('v1_s3_upload', __name__)
         "file_url": {"type": "string", "format": "uri"},
         "filename": {"type": "string"},
         "public": {"type": "boolean"},
-        "download_headers": {"type": "object"}
+        "download_headers": {"type": "object"},
+        "webhook_url": {"type": "string", "format": "uri"},
+        "id": {"type": "string"}
     },
-    "required": ["file_url"]
+    "required": ["file_url"],
+    "additionalProperties": False
 })
 @queue_task_wrapper(bypass_queue=False)
 def s3_upload_endpoint(job_id, data):

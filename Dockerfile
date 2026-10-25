@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libaom-dev \
     libdav1d-dev \
     librav1e-dev \
-    libsvtav1-dev \
+    libsvtav1enc-dev \
     libzimg-dev \
     libwebp-dev \
     git \
@@ -209,6 +209,7 @@ gunicorn --bind 0.0.0.0:8080 \
     --timeout ${GUNICORN_TIMEOUT:-300} \
     --worker-class sync \
     --keep-alive 80 \
+    --config gunicorn.conf.py \
     app:app' > /app/run_gunicorn.sh && \
     chmod +x /app/run_gunicorn.sh
 
