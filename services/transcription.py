@@ -39,8 +39,9 @@ def process_transcription(media_url, output_type, max_chars=56, language=None,):
     logger.info(f"Downloaded media to local file: {input_filename}")
 
     try:
-        model = whisper.load_model("base")
-        logger.info("Loaded Whisper model")
+        model_size = os.environ.get('WHISPER_MODEL_SIZE', 'base')
+        model = whisper.load_model(model_size)
+        logger.info(f"Loaded Whisper model: {model_size}")
 
         # result = model.transcribe(input_filename)
         # logger.info("Transcription completed")

@@ -36,9 +36,8 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
     logger.info(f"Downloaded media to local file: {input_filename}")
 
     try:
-        # Load a larger model for better translation quality
-        #model_size = "large" if task == "translate" else "base"
-        model_size = "base"
+        # Load model size from environment variable, default to base
+        model_size = os.environ.get('WHISPER_MODEL_SIZE', 'base')
         model = whisper.load_model(model_size)
         logger.info(f"Loaded Whisper {model_size} model")
 
